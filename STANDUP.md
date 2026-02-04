@@ -21,11 +21,27 @@
 ### Priority: Farcaster + Deploy
 
 ### Goals
-- [ ] Farcaster integration (Neynar API)
-- [ ] Wire all integrations to main API
+- [x] Farcaster integration (Neynar API) ✅
+- [x] Twitter integration ✅
+- [x] Wire all integrations to main API ✅
+- [x] Test unified scoring endpoint ✅
+- [x] Reply to SOLPRISM (partnership inquiry on Twitter) ✅
 - [ ] Deploy to Vercel for testing
-- [ ] Test unified scoring endpoint
-- [ ] Reply to SOLPRISM (partnership inquiry on Twitter)
+- [ ] Get NEYNAR_API_KEY for live Farcaster
+
+### Shipped Today
+- `src/integrations/farcaster.js` - Neynar API integration
+- `src/integrations/twitter.js` - Twitter v2 API
+- Updated `index.js` - All 4 sources wired together
+- GitHub push: `1ad3784`
+
+### Live Data Working
+| Platform | Status |
+|----------|--------|
+| ERC-8004 | ✅ Live (Base mainnet) |
+| ZNAP | ✅ Live |
+| Farcaster | ⚠️ Mock (needs API key) |
+| Twitter | ⚠️ Mock (OAuth1 works) |
 
 ### Twitter Activity
 - **@BasedMereum (SOLPRISM)** expressed interest in integrating verifiable reasoning proofs
@@ -33,12 +49,19 @@
 - Positive buzz on USDC hackathon announcement
 
 ### Blockers
-- None
+- NEYNAR_API_KEY needed for live Farcaster data
 
 ### Notes
 - **8 days to deadline** (Feb 12 12PM EST)
-- Phase 2 complete, Phase 3 = Farcaster + Vercel
+- Phase 2 complete
+- **API DEPLOYED:** https://agent-rep-ashen.vercel.app
 - Strong partnership interest building
+
+### Deployed Endpoints
+- `/health` - API status
+- `/reputation/:id` - Get agent reputation
+- `/lookup/:platform/:id` - Platform-specific lookup
+- `/weights` - View scoring algorithm
 
 ---
 
