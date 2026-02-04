@@ -141,12 +141,50 @@ function calculateOnChainScore(agent) {
   };
 }
 
+/**
+ * Full ERC-8004 data fetch for an agent (unified interface)
+ */
+async function getErc8004Data(identifier) {
+  try {
+    // If identifier is numeric, treat as agent ID
+    if (!isNaN(identifier)) {
+      const agent = await getAgentById(identifier);
+      if (!agent) return null;
+      
+      return {
+        ...agent,
+        score: calculateOnChainScore(agent)
+      };
+    }
+    
+    // If it looks like an address, get agents by owner
+    if (identifier.startsWith('0x') && identifier.length === 42) {
+      const ownerData = await getAgentsByOwner(identifier);
+      if (!ownerData || ownerData.agentCount === 0) return null;
+      
+      // Return owner info (would need to iterate to get specific agent)
+      return {
+        address: identifier,
+        owner: ownerData.owner,
+        agentCount: ownerData.agentCount,
+        score: { value: 0.5, confidence: 0.7, source: 'erc8004' }
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('ERC-8004 fetch error:', error.message);
+    return null;
+  }
+}
+
 module.exports = {
   getAgentById,
   getAgentMetadata,
   getAgentsByOwner,
   getTotalAgents,
   calculateOnChainScore,
+  getErc8004Data,
   IDENTITY_REGISTRY,
   REPUTATION_REGISTRY
 };

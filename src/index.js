@@ -9,8 +9,25 @@
 const express = require('express');
 const { calculateReputationScore, WEIGHTS } = require('./reputation');
 
+// Import integrations
+const { getErc8004Data } = require('./integrations/erc8004');
+const { getZnapData } = require('./integrations/znap');
+const { getFarcasterData } = require('./integrations/farcaster');
+const { getTwitterData } = require('./integrations/twitter');
+
 const app = express();
 app.use(express.json());
+
+// CORS for frontend
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 // Health check
 app.get('/health', (req, res) => {
@@ -18,30 +35,31 @@ app.get('/health', (req, res) => {
     status: 'ok', 
     agent: 'BigHoss',
     project: 'AgentRep',
-    version: '0.2.0'
+    version: '0.3.0',
+    integrations: {
+      erc8004: 'active',
+      znap: 'active',
+      farcaster: process.env.NEYNAR_API_KEY ? 'active' : 'mock',
+      twitter: process.env.TWITTER_BEARER_TOKEN ? 'active' : 'mock'
+    }
   });
 });
 
 // Get reputation score for an agent
 app.get('/reputation/:identifier', async (req, res) => {
   const { identifier } = req.params;
+  const startTime = Date.now();
   
   try {
-    // TODO: Fetch agent data from multiple sources
-    // - ERC-8004 registry (Base)
-    // - ZNAP API (Solana)
-    // - Farcaster API
-    // - Twitter API
-    // - On-chain activity
-    
-    // For now, return mock data structure
+    // Fetch from all sources in parallel
     const agentData = await fetchAgentData(identifier);
     
-    if (!agentData) {
+    if (!agentData || !agentData.hasAnyData) {
       return res.status(404).json({ 
         error: 'Agent not found',
         identifier,
-        searchedPlatforms: ['erc8004', 'znap', 'farcaster', 'twitter']
+        searchedPlatforms: ['erc8004', 'znap', 'farcaster', 'twitter'],
+        latencyMs: Date.now() - startTime
       });
     }
 
@@ -51,10 +69,16 @@ app.get('/reputation/:identifier', async (req, res) => {
       agentId: identifier,
       ...reputation,
       identities: agentData.identities,
-      timestamp: new Date().toISOString()
+      sources: agentData.sources,
+      timestamp: new Date().toISOString(),
+      latencyMs: Date.now() - startTime
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Reputation fetch error:', error);
+    res.status(500).json({ 
+      error: error.message,
+      latencyMs: Date.now() - startTime
+    });
   }
 });
 
@@ -70,6 +94,55 @@ app.get('/weights', (req, res) => {
       reviews: 'Peer reviews after interactions'
     }
   });
+});
+
+// Lookup by specific platform
+app.get('/lookup/:platform/:identifier', async (req, res) => {
+  const { platform, identifier } = req.params;
+  const startTime = Date.now();
+  
+  try {
+    let data = null;
+    
+    switch (platform.toLowerCase()) {
+      case 'erc8004':
+      case 'base':
+        data = await getErc8004Data(identifier);
+        break;
+      case 'znap':
+      case 'solana':
+        data = await getZnapData(identifier);
+        break;
+      case 'farcaster':
+      case 'fc':
+        data = await getFarcasterData(identifier);
+        break;
+      case 'twitter':
+      case 'x':
+        data = await getTwitterData(identifier);
+        break;
+      default:
+        return res.status(400).json({ error: `Unknown platform: ${platform}` });
+    }
+    
+    if (!data) {
+      return res.status(404).json({
+        error: 'Not found',
+        platform,
+        identifier,
+        latencyMs: Date.now() - startTime
+      });
+    }
+    
+    res.json({
+      platform,
+      identifier,
+      data,
+      latencyMs: Date.now() - startTime
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Submit a review for an agent
@@ -88,7 +161,7 @@ app.post('/review', async (req, res) => {
     });
   }
 
-  // TODO: Store review on-chain (Solana PDA)
+  // TODO: Store review on-chain or in database
   // TODO: Verify reviewer is a valid agent
   // TODO: Check for existing review (one per interaction)
 
@@ -163,57 +236,122 @@ app.post('/slash', async (req, res) => {
   });
 });
 
-// Mock data fetcher (to be replaced with real integrations)
+/**
+ * Fetch agent data from all platforms
+ */
 async function fetchAgentData(identifier) {
-  // This will be replaced with real API calls to:
-  // - ERC-8004 registry on Base
-  // - ZNAP API
-  // - Farcaster hub
-  // - Twitter API
-  // - On-chain indexers (Helius for Solana, etc.)
+  // Known agent mappings for cross-platform lookup
+  const knownAgents = {
+    'bighoss': {
+      erc8004: '1159',
+      znap: 'BigHoss',
+      farcaster: '2646623',
+      twitter: 'BigHossbot'
+    },
+    '1159': { erc8004: '1159', znap: 'BigHoss', farcaster: '2646623', twitter: 'BigHossbot' },
+    '2646623': { erc8004: '1159', znap: 'BigHoss', farcaster: '2646623', twitter: 'BigHossbot' },
+    'bighossbot': { erc8004: '1159', znap: 'BigHoss', farcaster: '2646623', twitter: 'BigHossbot' },
+    'bighoss8004': { erc8004: '1159', znap: 'BigHoss', farcaster: '2646623', twitter: 'BigHossbot' },
+    '0x09bb697aa89463939816a22ca0f6c3b0d2c56e2c': { erc8004: '1159', znap: 'BigHoss', farcaster: '2646623', twitter: 'BigHossbot' }
+  };
+  
+  // Get identifiers for cross-platform lookup
+  const normalizedId = identifier.toLowerCase();
+  const mappings = knownAgents[normalizedId] || {};
+  
+  // Fetch from all sources in parallel
+  const [erc8004, znap, farcaster, twitter] = await Promise.all([
+    getErc8004Data(mappings.erc8004 || identifier).catch(e => { console.error('ERC8004 error:', e); return null; }),
+    getZnapData(mappings.znap || identifier).catch(e => { console.error('ZNAP error:', e); return null; }),
+    getFarcasterData(mappings.farcaster || identifier).catch(e => { console.error('Farcaster error:', e); return null; }),
+    getTwitterData(mappings.twitter || identifier).catch(e => { console.error('Twitter error:', e); return null; })
+  ]);
 
-  // For demo, return sample data for known agent
-  if (identifier.toLowerCase() === 'bighoss' || identifier === '1159') {
-    return {
-      identities: {
-        erc8004: { agentId: 1159, address: '0x09bb697Aa89463939816a22cA0F6c3b0D2c56E2c', chain: 'base' },
-        znap: { username: 'BigHoss', id: 'znap_bighoss' },
-        farcaster: { username: 'bighoss8004', fid: 2646623 },
-        twitter: { username: 'BigHossbot', id: '2001439602192846849' }
-      },
-      erc8004: { 
-        registered: true, 
-        agentId: 1159,
-        registeredAt: '2026-02-03T00:00:00Z'
-      },
-      wallet: {
-        firstTx: '2026-02-02T00:00:00Z',
-        txCount: 25,
-        contractCalls: 10
-      },
-      znap: { followers: 5, engagement: 0.3 },
-      farcaster: { followers: 10, engagement: 0.4 },
-      twitter: { followers: 50, engagement: 0.2 },
-      vouches: [],
-      reviews: [],
-      transactionHistory: {
-        successfulCollabs: 1,
-        paymentsMade: 5,
-        paymentsReceived: 0,
-        hackathons: 1,
-        totalTx: 25
-      },
-      slashes: [],
-      scamReports: [],
-      createdAt: '2026-02-02T00:00:00Z'
+  // Build identities object
+  const identities = {};
+  const sources = {};
+  
+  if (erc8004) {
+    identities.erc8004 = {
+      agentId: erc8004.agentId,
+      address: erc8004.address,
+      chain: 'base'
     };
+    sources.erc8004 = erc8004.score || { value: 0.5, confidence: 0.7 };
+  }
+  
+  if (znap) {
+    identities.znap = {
+      username: znap.profile?.username,
+      id: znap.profile?.id
+    };
+    sources.znap = znap.score;
+  }
+  
+  if (farcaster) {
+    identities.farcaster = {
+      username: farcaster.profile?.username,
+      fid: farcaster.profile?.fid
+    };
+    sources.farcaster = farcaster.score;
+  }
+  
+  if (twitter) {
+    identities.twitter = {
+      username: twitter.profile?.username,
+      id: twitter.profile?.id
+    };
+    sources.twitter = twitter.score;
   }
 
-  return null;
+  const hasAnyData = erc8004 || znap || farcaster || twitter;
+
+  return {
+    hasAnyData,
+    identities,
+    sources,
+    erc8004: erc8004 ? {
+      registered: true,
+      agentId: erc8004.agentId,
+      registeredAt: erc8004.registeredAt
+    } : null,
+    wallet: erc8004?.wallet || null,
+    znap: znap?.score ? {
+      followers: znap.score.followersCount,
+      engagement: znap.score.value
+    } : null,
+    farcaster: farcaster?.score ? {
+      followers: farcaster.score.followers,
+      engagement: farcaster.score.value
+    } : null,
+    twitter: twitter?.score ? {
+      followers: twitter.score.followers,
+      engagement: twitter.score.engagementRate
+    } : null,
+    vouches: [],
+    reviews: [],
+    transactionHistory: erc8004?.wallet ? {
+      successfulCollabs: 0,
+      paymentsMade: erc8004.wallet.txCount || 0,
+      paymentsReceived: 0,
+      hackathons: 1,
+      totalTx: erc8004.wallet.txCount || 0
+    } : null,
+    slashes: [],
+    scamReports: []
+  };
 }
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`AgentRep API running on port ${PORT}`);
   console.log(`Built by BigHoss for Colosseum AI Agent Hackathon`);
+  console.log(`\nEndpoints:`);
+  console.log(`  GET  /health              - Health check`);
+  console.log(`  GET  /reputation/:id      - Get agent reputation score`);
+  console.log(`  GET  /lookup/:platform/:id - Lookup by specific platform`);
+  console.log(`  GET  /weights             - View scoring weights`);
+  console.log(`  POST /review              - Submit a review`);
+  console.log(`  POST /vouch               - Vouch for an agent`);
+  console.log(`  POST /slash               - Report bad behavior`);
 });
