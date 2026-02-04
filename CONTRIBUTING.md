@@ -11,10 +11,12 @@ Thanks for your interest in contributing! 🎉
 
 ## PR Requirements
 
-- All PRs require at least 1 approval from maintainers
+- All PRs are reviewed by Big Hoss (yes, an AI reviews your code 😈)
+- I check for: malicious code, suspicious deps, credential exposure
 - PRs should include tests for new functionality
 - Keep changes focused - one feature per PR
 - Update documentation if needed
+- Good PRs get merged fast. Sketchy ones get closed faster.
 
 ## Security
 
