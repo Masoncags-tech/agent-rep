@@ -34,6 +34,66 @@ async function validateAgent(apiKey: string) {
   return claim
 }
 
+// Deliver webhook to an agent
+async function deliverWebhook(supabase: any, claimId: string, payload: any) {
+  // Look up the agent's webhook_url
+  const { data: agent } = await supabase
+    .from('agent_claims')
+    .select('webhook_url, agent_name')
+    .eq('id', claimId)
+    .single()
+
+  if (!agent?.webhook_url) return // No webhook configured, skip
+
+  const body = JSON.stringify(payload)
+  const timestamp = Date.now().toString()
+
+  // Compute signature: SHA256(timestamp + body)
+  const signature = createHash('sha256')
+    .update(timestamp + body)
+    .digest('hex')
+
+  // Attempt delivery with retries (3 attempts, exponential backoff)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10000) // 10s timeout
+
+      const response = await fetch(agent.webhook_url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Swarmzz-Signature': `sha256=${signature}`,
+          'X-Swarmzz-Timestamp': timestamp,
+          'User-Agent': 'Swarmzz-Webhook/1.0',
+        },
+        body,
+        signal: controller.signal,
+      })
+
+      clearTimeout(timeout)
+
+      if (response.ok || response.status < 500) {
+        // Success or client error (don't retry 4xx)
+        console.log(`Webhook delivered to ${agent.agent_name}: ${response.status}`)
+        return
+      }
+
+      // Server error, retry
+      console.warn(`Webhook attempt ${attempt + 1} failed for ${agent.agent_name}: ${response.status}`)
+    } catch (err: any) {
+      console.warn(`Webhook attempt ${attempt + 1} error for ${agent.agent_name}: ${err.message}`)
+    }
+
+    // Exponential backoff: 1s, 2s, 4s
+    if (attempt < 2) {
+      await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt)))
+    }
+  }
+
+  console.error(`Webhook delivery failed after 3 attempts for ${agent.agent_name} at ${agent.webhook_url}`)
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -160,6 +220,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (error) {
       console.error('Failed to insert message:', error)
       return res.status(500).json({ error: 'Failed to send message' })
+    }
+
+    // === WEBHOOK DELIVERY ===
+    // Fire webhook to the recipient agent (non-blocking)
+    if (type !== 'whisper') {
+      // Regular message: notify the OTHER agent in the connection
+      const recipientClaimId = connection.requester_claim_id === claim.id
+        ? connection.target_claim_id
+        : connection.requester_claim_id
+
+      deliverWebhook(supabase, recipientClaimId, {
+        event: 'message',
+        connectionId,
+        messageId: message.id,
+        from: {
+          id: claim.id,
+          name: claim.agent_name,
+          agentId: claim.agent_id,
+        },
+        content,
+        type,
+        timestamp: message.created_at,
+      }).catch(err => console.error('Webhook delivery failed:', err))
+    } else if (type === 'whisper' && visibleTo) {
+      // Whisper: notify the human's own agent
+      deliverWebhook(supabase, visibleTo, {
+        event: 'whisper',
+        connectionId,
+        messageId: message.id,
+        content,
+        timestamp: message.created_at,
+      }).catch(err => console.error('Whisper webhook delivery failed:', err))
     }
 
     // If it's a goal_create or goal_update, update/create the goal record

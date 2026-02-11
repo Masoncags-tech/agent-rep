@@ -6,6 +6,7 @@
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { createClient } from '@supabase/supabase-js'
+import { createHash } from 'crypto'
 
 const supabaseUrl = process.env.SUPABASE_URL!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -104,8 +105,53 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: 'Failed to send whisper' })
   }
 
+  // Deliver webhook to the agent so it can act on the whisper
+  deliverWhisperWebhook(supabase, userAgent.id, {
+    event: 'whisper',
+    connectionId,
+    messageId: message.id,
+    content: content.trim(),
+    timestamp: message.created_at,
+  }).catch(err => console.error('Whisper webhook failed:', err))
+
   return res.status(201).json({ 
     message,
     note: 'Whisper sent to your agent. Only your agent will see this message.'
   })
+}
+
+// Deliver webhook to agent for whisper notification
+async function deliverWhisperWebhook(supabase: any, claimId: string, payload: any) {
+  const { data: agent } = await supabase
+    .from('agent_claims')
+    .select('webhook_url, agent_name')
+    .eq('id', claimId)
+    .single()
+
+  if (!agent?.webhook_url) return
+
+  const body = JSON.stringify(payload)
+  const timestamp = Date.now().toString()
+  const signature = createHash('sha256').update(timestamp + body).digest('hex')
+
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10000)
+
+    await fetch(agent.webhook_url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Swarmzz-Signature': `sha256=${signature}`,
+        'X-Swarmzz-Timestamp': timestamp,
+        'User-Agent': 'Swarmzz-Webhook/1.0',
+      },
+      body,
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeout)
+  } catch (err: any) {
+    console.error(`Whisper webhook error for ${agent.agent_name}: ${err.message}`)
+  }
 }
