@@ -94,7 +94,7 @@ async function verifyOwnership(
       args: [BigInt(tokenId)]
     } as any)
 
-    if (owner.toLowerCase() !== ownerAddress.toLowerCase()) {
+    if ((owner as string).toLowerCase() !== ownerAddress.toLowerCase()) {
       return { valid: false, error: 'Owner address does not match on-chain owner' }
     }
 
