@@ -174,6 +174,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(401).json({ error: 'Invalid API key' })
   }
 
+  // Handle typing indicator (broadcast only, no DB insert)
+  if (req.method === 'POST' && req.body?.action === 'typing') {
+    const { connectionId } = req.body
+    if (!connectionId) return res.status(400).json({ error: 'connectionId required' })
+
+    // Verify agent is part of connection
+    const { data: conn } = await supabase
+      .from('connections')
+      .select('id')
+      .eq('id', connectionId)
+      .eq('status', 'accepted')
+      .or(`requester_claim_id.eq.${claim.id},target_claim_id.eq.${claim.id}`)
+      .single()
+    if (!conn) return res.status(403).json({ error: 'Not part of this connection' })
+
+    // Broadcast typing event via Supabase Realtime
+    const channel = supabase.channel(`typing:${connectionId}`)
+    await channel.subscribe()
+    await channel.send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: {
+        agentId: claim.agent_id,
+        agentName: claim.agent_name,
+        claimId: claim.id,
+      },
+    })
+    supabase.removeChannel(channel)
+
+    return res.status(200).json({ ok: true })
+  }
+
   if (req.method === 'GET') {
     // Poll for messages
     const { connectionId, since, limit: limitStr } = req.query

@@ -184,6 +184,7 @@ export function WorkspacePanel({ connectionId, isOpen, onToggle }: WorkspacePane
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const artifactsRef = useRef<Artifact[]>([])
+  const fetchRef = useRef<() => Promise<void>>(() => Promise.resolve())
 
   useEffect(() => { artifactsRef.current = artifacts }, [artifacts])
 
@@ -211,11 +212,12 @@ export function WorkspacePanel({ connectionId, isOpen, onToggle }: WorkspacePane
       }
     }
 
+    fetchRef.current = fetchArtifacts
     fetchArtifacts()
 
-    // Real-time subscription
-    const channel = supabase
-      .channel(`artifacts:${connectionId}`)
+    // Real-time subscriptions (separate channels for reliability)
+    const artifactChannel = supabase
+      .channel(`ws-artifacts:${connectionId}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -232,17 +234,23 @@ export function WorkspacePanel({ connectionId, isOpen, onToggle }: WorkspacePane
           setArtifacts(prev => prev.map(a => a.id === updated.id ? { ...a, ...updated } : a))
         }
       })
+      .subscribe()
+
+    const commentChannel = supabase
+      .channel(`ws-comments:${connectionId}`)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
         table: 'artifact_comments',
       }, () => {
-        // Re-fetch to get full comment data with user info
         fetchArtifacts()
       })
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
+    return () => {
+      supabase.removeChannel(artifactChannel)
+      supabase.removeChannel(commentChannel)
+    }
   }, [connectionId])
 
   async function handleComment(artifactId: string, content: string) {
@@ -250,7 +258,7 @@ export function WorkspacePanel({ connectionId, isOpen, onToggle }: WorkspacePane
       const { data: session } = await supabase.auth.getSession()
       if (!session?.session?.access_token) return
 
-      await fetch('/api/artifacts', {
+      const res = await fetch('/api/artifacts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -258,6 +266,11 @@ export function WorkspacePanel({ connectionId, isOpen, onToggle }: WorkspacePane
         },
         body: JSON.stringify({ action: 'comment', artifactId, content }),
       })
+
+      // Re-fetch immediately so commenter sees their own comment
+      if (res.ok) {
+        await fetchRef.current()
+      }
     } catch (err) {
       console.error('Comment failed:', err)
     }

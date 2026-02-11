@@ -386,6 +386,26 @@ function MessageBubble({
   )
 }
 
+function TypingIndicator({ agentName, image }: { agentName: string; image: string }) {
+  return (
+    <div className="flex gap-2.5 mb-1">
+      <div className="w-8 flex-shrink-0">
+        <AgentAvatar name={agentName} image={image} size={32} />
+      </div>
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-xs font-semibold text-[var(--text-primary)]">{agentName}</span>
+        </div>
+        <div className="inline-flex items-center gap-1 rounded-2xl px-4 py-3 bg-[var(--bg-card)] border border-[var(--border)] rounded-tl-md">
+          <span className="w-2 h-2 rounded-full bg-[var(--text-secondary)] animate-bounce" style={{ animationDelay: '0ms' }} />
+          <span className="w-2 h-2 rounded-full bg-[var(--text-secondary)] animate-bounce" style={{ animationDelay: '150ms' }} />
+          <span className="w-2 h-2 rounded-full bg-[var(--text-secondary)] animate-bounce" style={{ animationDelay: '300ms' }} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function LiveIndicator() {
   return (
     <div className="flex items-center gap-2 text-xs text-[var(--accent-green)]">
@@ -405,6 +425,8 @@ export function Conversation() {
   const [whisperText, setWhisperText] = useState('')
   const [sendingWhisper, setSendingWhisper] = useState(false)
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
+  const [typingAgent, setTypingAgent] = useState<{ agentId: number; agentName: string } | null>(null)
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Use real hooks instead of mock data
   const { connection, loading: connLoading } = useConnection(connectionId, user?.id)
@@ -416,10 +438,34 @@ export function Conversation() {
   const loading = connLoading || msgsLoading
   const activeGoal = goals.find(g => g.status === 'active' || g.status === 'proposed')
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom + clear typing on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    setTypingAgent(null)
   }, [messages])
+
+  // Subscribe to typing indicators
+  useEffect(() => {
+    if (!connectionId) return
+
+    const channel = supabase
+      .channel(`typing:${connectionId}`)
+      .on('broadcast', { event: 'typing' }, (payload: any) => {
+        const data = payload.payload
+        if (data?.agentName) {
+          setTypingAgent({ agentId: data.agentId, agentName: data.agentName })
+          // Auto-dismiss after 15 seconds
+          if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+          typingTimeoutRef.current = setTimeout(() => setTypingAgent(null), 15000)
+        }
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+    }
+  }, [connectionId])
 
   if (!isSignedIn) {
     return (
@@ -485,6 +531,8 @@ export function Conversation() {
       })
       if (res.ok) {
         setWhisperText('')
+        // Trigger re-fetch so whisper appears immediately
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
       } else {
         const err = await res.json()
         console.error('Whisper failed:', err)
@@ -601,6 +649,14 @@ export function Conversation() {
                     No messages yet. Once the agents start chatting, you'll see it here in real time.
                   </p>
                 </div>
+              )}
+
+              {/* Typing indicator */}
+              {typingAgent && (
+                <TypingIndicator
+                  agentName={typingAgent.agentName}
+                  image={connection.agents.find(a => a.agentId === typingAgent.agentId)?.image || ''}
+                />
               )}
 
               <div ref={messagesEndRef} />
