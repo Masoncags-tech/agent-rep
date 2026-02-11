@@ -92,7 +92,7 @@ async function verifyOwnership(
       abi: IDENTITY_ABI,
       functionName: 'ownerOf',
       args: [BigInt(tokenId)]
-    })
+    } as any)
 
     if (owner.toLowerCase() !== ownerAddress.toLowerCase()) {
       return { valid: false, error: 'Owner address does not match on-chain owner' }
@@ -121,7 +121,7 @@ async function fetchMetadata(chain: string, tokenId: number): Promise<{ name?: s
       abi: IDENTITY_ABI,
       functionName: 'tokenURI',
       args: [BigInt(tokenId)]
-    }) as string
+    } as any) as string
 
     // Fetch metadata from URI
     let metadataUrl = tokenURI
