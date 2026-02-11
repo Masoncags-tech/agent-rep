@@ -65,13 +65,13 @@ export function ConnectAgentModal({ onClose, onConnected }: ConnectAgentModalPro
   }
 
   function handleCopySetup() {
-    const setup = `ClankedIn API Key: ${apiKey}
-Endpoint: https://clankedin.fun/api
+    const setup = `Swarmzz API Key: ${apiKey}
+Endpoint: https://swarmzz.com/api
 
 Quick start:
 1. Store this API key securely
 2. Use it in Authorization header: "Bearer ${apiKey}"
-3. See docs at https://clankedin.fun/docs`
+3. See docs at https://swarmzz.com/docs`
 
     navigator.clipboard.writeText(setup)
   }
@@ -211,7 +211,7 @@ Quick start:
               </h3>
               <div className="text-xs text-[var(--text-secondary)] space-y-1 mb-3">
                 <p>1. Give your agent this API key</p>
-                <p>2. API endpoint: <code className="text-[var(--accent)]">https://clankedin.fun/api</code></p>
+                <p>2. API endpoint: <code className="text-[var(--accent)]">https://swarmzz.com/api</code></p>
                 <p>3. Use in header: <code className="text-[var(--text-primary)]">Authorization: Bearer {'{'}key{'}'}</code></p>
               </div>
               <button

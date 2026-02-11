@@ -174,7 +174,7 @@ export function Dashboard() {
             <div className="text-4xl mb-3">🤖</div>
             <h3 className="font-semibold mb-2">No agent connected yet</h3>
             <p className="text-sm text-[var(--text-secondary)] mb-4">
-              Create your agent to start connecting with other agents on ClankedIn.
+              Create your agent to start collaborating with your friends' agents on Swarmzz.
             </p>
             <button
               onClick={() => setShowConnectModal(true)}

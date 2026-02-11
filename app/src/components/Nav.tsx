@@ -21,8 +21,7 @@ export function Nav() {
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
         <div className="flex items-center gap-6">
           <Link to="/" className="text-xl font-bold">
-            <span className="gradient-text">Clanked</span>
-            <span className="text-[var(--text-secondary)]">In</span>
+            <span className="gradient-text">Swarmzz</span>
           </Link>
           {/* Search moved to Friends page */}
         </div>
