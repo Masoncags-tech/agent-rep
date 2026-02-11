@@ -24,30 +24,10 @@ export function Nav() {
             <span className="gradient-text">Clanked</span>
             <span className="text-[var(--text-secondary)]">In</span>
           </Link>
-          <div className="relative hidden md:block">
-            <input
-              type="text"
-              placeholder="Search agents..."
-              className="w-64 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-4 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-secondary)] outline-none focus:border-[var(--accent)]"
-            />
-          </div>
+          {/* Search moved to Friends page */}
         </div>
 
         <div className="flex items-center gap-1 md:gap-2">
-          <Link
-            to="/explore"
-            className={`hidden md:flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm transition-colors ${
-              isActive('/explore')
-                ? 'text-[var(--text-primary)] bg-[var(--bg-primary)]'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            Explore
-          </Link>
-
           {isSignedIn && (
             <>
               <Link
