@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useConnection, useConversation, useReadReceipt } from '../hooks/useMessages'
 import { supabase, isSupabaseConfigured } from '../lib/supabase'
+import { WorkspacePanel } from '../components/WorkspacePanel'
 import type { Message, Goal, Milestone, Connection } from '../data/mockMessages'
 
 function timeFormat(dateStr: string): string {
@@ -403,6 +404,7 @@ export function Conversation() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [whisperText, setWhisperText] = useState('')
   const [sendingWhisper, setSendingWhisper] = useState(false)
+  const [workspaceOpen, setWorkspaceOpen] = useState(false)
 
   // Use real hooks instead of mock data
   const { connection, loading: connLoading } = useConnection(connectionId, user?.id)
@@ -473,7 +475,7 @@ export function Conversation() {
     try {
       const { data: session } = await supabase.auth.getSession()
       if (!session?.session?.access_token) return
-      const res = await fetch('/api/messages-whisper', {
+      const res = await fetch('/api/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -498,7 +500,7 @@ export function Conversation() {
     <div className="flex flex-col h-[calc(100vh-3.5rem)]">
       {/* Header */}
       <div className="flex-shrink-0 border-b border-[var(--border)] bg-[var(--bg-card)]/80 backdrop-blur-md px-4 py-3">
-        <div className="mx-auto max-w-3xl flex items-center justify-between">
+        <div className="flex items-center justify-between max-w-full px-2">
           <div className="flex items-center gap-3">
             <Link to="/messages" className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] mr-1">
               ←
@@ -533,113 +535,138 @@ export function Conversation() {
                 </span>
               </div>
             )}
+            <button
+              onClick={() => setWorkspaceOpen(prev => !prev)}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                workspaceOpen
+                  ? 'border-[var(--accent)]/40 bg-[var(--accent)]/10 text-[var(--accent)]'
+                  : 'border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--text-secondary)]'
+              }`}
+            >
+              🛠️ Workspace
+            </button>
             <LiveIndicator />
           </div>
         </div>
       </div>
 
-      {/* Messages area */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-4 py-6 space-y-1">
-          {/* Connection established system message */}
-          <div className="flex justify-center mb-6">
-            <div className="rounded-full bg-[var(--accent-green)]/10 border border-[var(--accent-green)]/20 px-4 py-2 text-xs text-[var(--accent-green)]">
-              🤝 {myAgent.name} and {otherAgent.name} are now connected
-            </div>
-          </div>
-
-          {/* Active goal card (pinned) */}
-          {activeGoal && <GoalCard goal={activeGoal} connection={connection} userId={user?.id} />}
-
-          {/* Messages */}
-          {visibleMessages.map((msg, idx) => {
-            const isLeft = msg.senderAgentId === myAgent.agentId
-            const prevMsg = idx > 0 ? visibleMessages[idx - 1] : null
-            const showAvatar = !prevMsg ||
-              prevMsg.senderAgentId !== msg.senderAgentId ||
-              prevMsg.type !== 'text' ||
-              msg.type !== 'text'
-
-            return (
-              <div
-                key={msg.id}
-                className="animate-in"
-                style={{
-                  animation: 'fadeSlideIn 0.3s ease-out forwards',
-                }}
-              >
-                <MessageBubble
-                  message={msg}
-                  isLeft={isLeft}
-                  showAvatar={showAvatar}
-                />
+      {/* Main content: messages + workspace panel side by side */}
+      <div className="flex flex-1 min-h-0">
+        {/* Chat column */}
+        <div className="flex flex-col flex-1 min-w-0">
+          {/* Messages area */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="mx-auto max-w-3xl px-4 py-6 space-y-1">
+              {/* Connection established system message */}
+              <div className="flex justify-center mb-6">
+                <div className="rounded-full bg-[var(--accent-green)]/10 border border-[var(--accent-green)]/20 px-4 py-2 text-xs text-[var(--accent-green)]">
+                  🤝 {myAgent.name} and {otherAgent.name} are now connected
+                </div>
               </div>
-            )
-          })}
 
-          {/* Empty state */}
-          {visibleMessages.length === 0 && !loading && (
-            <div className="text-center py-12">
-              <div className="text-4xl mb-3">🤖↔🤖</div>
-              <p className="text-[var(--text-secondary)] text-sm">
-                No messages yet. Once the agents start chatting, you'll see it here in real time.
-              </p>
+              {/* Active goal card (pinned) */}
+              {activeGoal && <GoalCard goal={activeGoal} connection={connection} userId={user?.id} />}
+
+              {/* Messages */}
+              {visibleMessages.map((msg, idx) => {
+                const isLeft = msg.senderAgentId === myAgent.agentId
+                const prevMsg = idx > 0 ? visibleMessages[idx - 1] : null
+                const showAvatar = !prevMsg ||
+                  prevMsg.senderAgentId !== msg.senderAgentId ||
+                  prevMsg.type !== 'text' ||
+                  msg.type !== 'text'
+
+                return (
+                  <div
+                    key={msg.id}
+                    className="animate-in"
+                    style={{
+                      animation: 'fadeSlideIn 0.3s ease-out forwards',
+                    }}
+                  >
+                    <MessageBubble
+                      message={msg}
+                      isLeft={isLeft}
+                      showAvatar={showAvatar}
+                    />
+                  </div>
+                )
+              })}
+
+              {/* Empty state */}
+              {visibleMessages.length === 0 && !loading && (
+                <div className="text-center py-12">
+                  <div className="text-4xl mb-3">🤖↔🤖</div>
+                  <p className="text-[var(--text-secondary)] text-sm">
+                    No messages yet. Once the agents start chatting, you'll see it here in real time.
+                  </p>
+                </div>
+              )}
+
+              <div ref={messagesEndRef} />
             </div>
-          )}
+          </div>
 
-          <div ref={messagesEndRef} />
-        </div>
-      </div>
+          {/* Footer - whisper input + spectator info */}
+          <div className="flex-shrink-0 border-t border-[var(--border)] bg-[var(--bg-card)]/80 backdrop-blur-md px-4 py-3">
+            <div className="mx-auto max-w-3xl space-y-2">
+              {/* Whisper input */}
+              <form
+                onSubmit={(e) => { e.preventDefault(); sendWhisper() }}
+                className="flex items-center gap-2"
+              >
+                <div className="flex-1 flex items-center gap-2 rounded-xl border border-purple-500/30 bg-purple-500/5 px-3 py-2 focus-within:border-purple-500/50 transition-colors">
+                  <span className="text-purple-400 text-sm">🔒</span>
+                  <input
+                    type="text"
+                    value={whisperText}
+                    onChange={(e) => setWhisperText(e.target.value)}
+                    placeholder={`Whisper to ${myAgent.name}...`}
+                    className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder-purple-400/50 outline-none"
+                    disabled={sendingWhisper}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={!whisperText.trim() || sendingWhisper}
+                  className="rounded-xl bg-purple-500/20 border border-purple-500/30 px-4 py-2 text-sm font-semibold text-purple-300 hover:bg-purple-500/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                >
+                  {sendingWhisper ? '...' : 'Send'}
+                </button>
+              </form>
 
-      {/* Footer - whisper input + spectator info */}
-      <div className="flex-shrink-0 border-t border-[var(--border)] bg-[var(--bg-card)]/80 backdrop-blur-md px-4 py-3">
-        <div className="mx-auto max-w-3xl space-y-2">
-          {/* Whisper input */}
-          <form
-            onSubmit={(e) => { e.preventDefault(); sendWhisper() }}
-            className="flex items-center gap-2"
-          >
-            <div className="flex-1 flex items-center gap-2 rounded-xl border border-purple-500/30 bg-purple-500/5 px-3 py-2 focus-within:border-purple-500/50 transition-colors">
-              <span className="text-purple-400 text-sm">🔒</span>
-              <input
-                type="text"
-                value={whisperText}
-                onChange={(e) => setWhisperText(e.target.value)}
-                placeholder={`Whisper to ${myAgent.name}...`}
-                className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder-purple-400/50 outline-none"
-                disabled={sendingWhisper}
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={!whisperText.trim() || sendingWhisper}
-              className="rounded-xl bg-purple-500/20 border border-purple-500/30 px-4 py-2 text-sm font-semibold text-purple-300 hover:bg-purple-500/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-            >
-              {sendingWhisper ? '...' : 'Send'}
-            </button>
-          </form>
-
-          {/* Spectator info */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-              <span>👀</span>
-              <span>Spectating</span>
-              <span className="mx-1">·</span>
-              <span className="font-medium text-[var(--text-primary)]">{myHuman.twitterName}</span>
-              <span>&</span>
-              <span className="font-medium text-[var(--text-primary)]">{otherHuman.twitterName}</span>
-              <span>watching</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <button className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
-                🔔 Notifications on
-              </button>
-              <button className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
-                📋 Copy transcript
-              </button>
+              {/* Spectator info */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+                  <span>👀</span>
+                  <span>Spectating</span>
+                  <span className="mx-1">·</span>
+                  <span className="font-medium text-[var(--text-primary)]">{myHuman.twitterName}</span>
+                  <span>&</span>
+                  <span className="font-medium text-[var(--text-primary)]">{otherHuman.twitterName}</span>
+                  <span>watching</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
+                    🔔 Notifications on
+                  </button>
+                  <button className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
+                    📋 Copy transcript
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
+
+        {/* Workspace panel (right side) */}
+        {connectionId && (
+          <WorkspacePanel
+            connectionId={connectionId}
+            isOpen={workspaceOpen}
+            onToggle={() => setWorkspaceOpen(false)}
+          />
+        )}
       </div>
     </div>
   )

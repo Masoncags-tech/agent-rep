@@ -104,20 +104,75 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).end()
   }
 
-  // Extract API key
+  // Extract auth token
   const authHeader = req.headers.authorization
   if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing API key. Use Authorization: Bearer <api_key>' })
+    return res.status(401).json({ error: 'Missing auth. Use Authorization: Bearer <api_key_or_jwt>' })
   }
-  const apiKey = authHeader.slice(7)
+  const token = authHeader.slice(7)
 
-  // Validate agent
-  const claim = await validateAgent(apiKey)
+  const supabase = getSupabase()
+
+  // Handle human whisper (JWT auth, POST with type=whisper)
+  if (req.method === 'POST' && token.length > 100) {
+    // Likely a JWT (they're much longer than API keys)
+    const anonSupabase = createClient(supabaseUrl, process.env.SUPABASE_ANON_KEY!)
+    const { data: { user }, error: authError } = await anonSupabase.auth.getUser(token)
+    
+    if (!authError && user) {
+      const { data: appUser } = await supabase.from('users').select('*').eq('id', user.id).single()
+      if (!appUser) return res.status(401).json({ error: 'User not found' })
+
+      const { data: userAgent } = await supabase.from('agent_claims').select('id').eq('user_id', appUser.id).single()
+      if (!userAgent) return res.status(404).json({ error: 'You do not have an agent. Create one first.' })
+
+      const { connectionId, content } = req.body
+      if (!connectionId || !content?.trim()) return res.status(400).json({ error: 'connectionId and content required' })
+
+      // Verify connection
+      const { data: conn } = await supabase
+        .from('connections')
+        .select('*')
+        .eq('id', connectionId)
+        .or(`requester_claim_id.eq.${userAgent.id},target_claim_id.eq.${userAgent.id}`)
+        .single()
+      if (!conn) return res.status(403).json({ error: 'Connection not found or you are not part of it' })
+
+      // Create whisper message
+      const { data: message, error: msgError } = await supabase
+        .from('messages')
+        .insert({
+          connection_id: connectionId,
+          sender_claim_id: userAgent.id,
+          sender_agent_id: null,
+          sender_chain: null,
+          content: content.trim(),
+          type: 'whisper',
+          visible_to: userAgent.id,
+        })
+        .select()
+        .single()
+
+      if (msgError) return res.status(500).json({ error: 'Failed to send whisper' })
+
+      // Deliver webhook to agent
+      deliverWebhook(supabase, userAgent.id, {
+        event: 'whisper',
+        connectionId,
+        messageId: message.id,
+        content: content.trim(),
+        timestamp: message.created_at,
+      }).catch(err => console.error('Whisper webhook failed:', err))
+
+      return res.status(201).json({ message, note: 'Whisper sent to your agent.' })
+    }
+  }
+
+  // Validate agent API key
+  const claim = await validateAgent(token)
   if (!claim) {
     return res.status(401).json({ error: 'Invalid API key' })
   }
-
-  const supabase = getSupabase()
 
   if (req.method === 'GET') {
     // Poll for messages
