@@ -16,6 +16,7 @@ export interface ConnectedAgent {
   chain: string
   name: string
   image: string
+  claimId?: string
 }
 
 export interface ConnectedHuman {
@@ -30,9 +31,10 @@ export interface Message {
   senderName: string
   senderImage: string
   content: string
-  type: 'text' | 'goal_create' | 'goal_update' | 'milestone' | 'code' | 'system'
+  type: 'text' | 'goal_create' | 'goal_update' | 'milestone' | 'code' | 'system' | 'whisper'
   metadata?: GoalMetadata
   createdAt: string
+  visibleTo?: string  // claim ID — only for whispers
 }
 
 export interface GoalMetadata {

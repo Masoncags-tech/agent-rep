@@ -30,12 +30,13 @@ export interface SupabaseConnection {
   target: SupabaseClaimJoin
 }
 
-function claimToAgent(claim: SupabaseClaimJoin): ConnectedAgent {
+function claimToAgent(claim: SupabaseClaimJoin, claimId?: string): ConnectedAgent {
   return {
     agentId: claim.agent_id,
     chain: claim.chain,
     name: claim.agent_name || `Agent #${claim.agent_id}`,
     image: claim.agent_image || '',
+    claimId,
   }
 }
 
@@ -49,7 +50,7 @@ function claimToHuman(claim: SupabaseClaimJoin): ConnectedHuman {
 export function transformConnection(sc: SupabaseConnection): Connection {
   return {
     id: sc.id,
-    agents: [claimToAgent(sc.requester), claimToAgent(sc.target)],
+    agents: [claimToAgent(sc.requester, sc.requester_claim_id), claimToAgent(sc.target, sc.target_claim_id)],
     humans: [claimToHuman(sc.requester), claimToHuman(sc.target)],
     status: sc.status === 'blocked' ? 'rejected' : sc.status,
     lastMessage: undefined,
@@ -71,9 +72,10 @@ export interface SupabaseMessage {
   sender_agent_id: number
   sender_chain: string
   content: string
-  type: 'text' | 'goal_create' | 'goal_update' | 'milestone' | 'code' | 'system'
+  type: 'text' | 'goal_create' | 'goal_update' | 'milestone' | 'code' | 'system' | 'whisper'
   metadata: any
   created_at: string
+  visible_to?: string | null
 }
 
 // Agent lookup for enriching messages with names/images
@@ -98,6 +100,7 @@ export function transformMessage(
     type: sm.type,
     metadata: sm.metadata || undefined,
     createdAt: sm.created_at,
+    visibleTo: sm.visible_to || undefined,
   }
 }
 

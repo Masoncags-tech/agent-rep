@@ -314,6 +314,30 @@ function MessageBubble({
     )
   }
 
+  // Whisper message (human → their agent)
+  if (message.type === 'whisper') {
+    return (
+      <div className={`flex gap-2.5 mb-1 ${isLeft ? '' : 'flex-row-reverse'}`}>
+        <div className="w-8 flex-shrink-0" />
+        <div className={`max-w-[75%] ${isLeft ? '' : 'text-right'}`}>
+          {showAvatar && (
+            <div className={`flex items-center gap-2 mb-1 ${isLeft ? '' : 'justify-end'}`}>
+              <span className="text-xs text-purple-400 flex items-center gap-1">
+                🔒 Whisper
+              </span>
+              <span className="text-xs text-[var(--text-secondary)]">
+                {timeFormat(message.createdAt)}
+              </span>
+            </div>
+          )}
+          <div className="inline-block rounded-2xl px-4 py-2.5 text-sm leading-relaxed bg-purple-500/10 border border-purple-500/25 text-purple-200 italic rounded-tr-md">
+            {message.content}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // System message
   if (message.type === 'system') {
     return (
@@ -377,6 +401,8 @@ export function Conversation() {
   const { connectionId } = useParams<{ connectionId: string }>()
   const { user, isSignedIn, signIn } = useAuth()
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [whisperText, setWhisperText] = useState('')
+  const [sendingWhisper, setSendingWhisper] = useState(false)
 
   // Use real hooks instead of mock data
   const { connection, loading: connLoading } = useConnection(connectionId, user?.id)
@@ -432,6 +458,41 @@ export function Conversation() {
   const otherAgent = connection.agents.find(a => !myAgentIds.includes(a.agentId))!
   const myHuman = connection.humans.find(h => h.twitterHandle === user!.twitterHandle)!
   const otherHuman = connection.humans.find(h => h.twitterHandle !== user!.twitterHandle)!
+
+  // Filter out whispers that aren't ours (other human's whispers to their agent)
+  const myClaimId = myAgent?.claimId
+  const visibleMessages = messages.filter(msg => {
+    if (msg.type !== 'whisper') return true
+    // Show whisper only if it belongs to our agent (visible_to = our claim)
+    return msg.visibleTo === myClaimId
+  })
+
+  async function sendWhisper() {
+    if (!whisperText.trim() || sendingWhisper || !connectionId) return
+    setSendingWhisper(true)
+    try {
+      const { data: session } = await supabase.auth.getSession()
+      if (!session?.session?.access_token) return
+      const res = await fetch('/api/messages-whisper', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.session.access_token}`,
+        },
+        body: JSON.stringify({ connectionId, content: whisperText.trim() }),
+      })
+      if (res.ok) {
+        setWhisperText('')
+      } else {
+        const err = await res.json()
+        console.error('Whisper failed:', err)
+      }
+    } catch (err) {
+      console.error('Whisper error:', err)
+    } finally {
+      setSendingWhisper(false)
+    }
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)]">
@@ -491,9 +552,9 @@ export function Conversation() {
           {activeGoal && <GoalCard goal={activeGoal} connection={connection} userId={user?.id} />}
 
           {/* Messages */}
-          {messages.map((msg, idx) => {
+          {visibleMessages.map((msg, idx) => {
             const isLeft = msg.senderAgentId === myAgent.agentId
-            const prevMsg = idx > 0 ? messages[idx - 1] : null
+            const prevMsg = idx > 0 ? visibleMessages[idx - 1] : null
             const showAvatar = !prevMsg ||
               prevMsg.senderAgentId !== msg.senderAgentId ||
               prevMsg.type !== 'text' ||
@@ -517,7 +578,7 @@ export function Conversation() {
           })}
 
           {/* Empty state */}
-          {messages.length === 0 && !loading && (
+          {visibleMessages.length === 0 && !loading && (
             <div className="text-center py-12">
               <div className="text-4xl mb-3">🤖↔🤖</div>
               <p className="text-[var(--text-secondary)] text-sm">
@@ -530,25 +591,53 @@ export function Conversation() {
         </div>
       </div>
 
-      {/* Footer - spectator bar */}
+      {/* Footer - whisper input + spectator info */}
       <div className="flex-shrink-0 border-t border-[var(--border)] bg-[var(--bg-card)]/80 backdrop-blur-md px-4 py-3">
-        <div className="mx-auto max-w-3xl flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-            <span>👀</span>
-            <span>Spectating</span>
-            <span className="mx-1">·</span>
-            <span className="font-medium text-[var(--text-primary)]">{myHuman.twitterName}</span>
-            <span>&</span>
-            <span className="font-medium text-[var(--text-primary)]">{otherHuman.twitterName}</span>
-            <span>watching</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <button className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
-              🔔 Notifications on
+        <div className="mx-auto max-w-3xl space-y-2">
+          {/* Whisper input */}
+          <form
+            onSubmit={(e) => { e.preventDefault(); sendWhisper() }}
+            className="flex items-center gap-2"
+          >
+            <div className="flex-1 flex items-center gap-2 rounded-xl border border-purple-500/30 bg-purple-500/5 px-3 py-2 focus-within:border-purple-500/50 transition-colors">
+              <span className="text-purple-400 text-sm">🔒</span>
+              <input
+                type="text"
+                value={whisperText}
+                onChange={(e) => setWhisperText(e.target.value)}
+                placeholder={`Whisper to ${myAgent.name}...`}
+                className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder-purple-400/50 outline-none"
+                disabled={sendingWhisper}
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={!whisperText.trim() || sendingWhisper}
+              className="rounded-xl bg-purple-500/20 border border-purple-500/30 px-4 py-2 text-sm font-semibold text-purple-300 hover:bg-purple-500/30 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+            >
+              {sendingWhisper ? '...' : 'Send'}
             </button>
-            <button className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
-              📋 Copy transcript
-            </button>
+          </form>
+
+          {/* Spectator info */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+              <span>👀</span>
+              <span>Spectating</span>
+              <span className="mx-1">·</span>
+              <span className="font-medium text-[var(--text-primary)]">{myHuman.twitterName}</span>
+              <span>&</span>
+              <span className="font-medium text-[var(--text-primary)]">{otherHuman.twitterName}</span>
+              <span>watching</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <button className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
+                🔔 Notifications on
+              </button>
+              <button className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
+                📋 Copy transcript
+              </button>
+            </div>
           </div>
         </div>
       </div>
